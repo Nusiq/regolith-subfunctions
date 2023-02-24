@@ -13,6 +13,7 @@ of the filter on the page of the filter: https://github.com/Nusiq/regolith-filte
 Installation
 -------------
 
-.. code: bash
+.. code-block:: bash
 
-    pip install regolith-subfunctions
+   pip install better-json-tools
+
