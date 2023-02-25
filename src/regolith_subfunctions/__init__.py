@@ -5,8 +5,9 @@ from typing import Deque, Iterator, List, Match, Optional, Dict, Tuple
 from pathlib import Path
 import re
 import sys
+from better_json_tools import load_jsonc
 
-VERSION = (1, 0, 2)
+VERSION = (1, 1, 0)
 __version__ = '.'.join([str(x) for x in VERSION])
 
 
@@ -646,8 +647,7 @@ def main():
     scope_path = Path('data') / config.get(
         'scope_path', 'subfunctions/scope.json')
     try:
-        with scope_path.open('r') as f:
-            scope = scope | json.load(f)
+        scope = scope | load_jsonc(scope_path).data
     except:
         print_red(
             f"Unable to read scope from {scope_path.as_posix()}. "
