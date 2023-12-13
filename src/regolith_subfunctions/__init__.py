@@ -10,7 +10,8 @@ from better_json_tools import load_jsonc
 VERSION = (1, 1, 0)
 __version__ = '.'.join([str(x) for x in VERSION])
 
-
+# The system_tempalte regolith filter overwrites the FUNCTION_PATH variable to
+# be absolute.
 FUNCTIONS_PATH = Path('BP/functions')
 RP_TEXTS_PATH = Path('RP/texts')
 BP_TEXTS_PATH = Path('BP/texts')

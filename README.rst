@@ -15,5 +15,5 @@ Installation
 
 .. code-block:: bash
 
-   pip install better-json-tools
+   pip install regolith-subfunctions
 
