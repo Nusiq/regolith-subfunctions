@@ -7,7 +7,7 @@ import re
 import sys
 from better_json_tools import load_jsonc
 
-VERSION = (1, 1, 1)
+VERSION = (1, 2, 0)
 __version__ = '.'.join([str(x) for x in VERSION])
 
 # The system_tempalte regolith filter overwrites the FUNCTION_PATH variable to
@@ -24,6 +24,7 @@ EXPR_P = r'[^`\n\r]+'
 
 JUST_DEFINE = re.compile(f"definefunction <({FUNCTION_NAME_P})>:")
 SUBFUNCTION = re.compile(f"(.* )?function <({FUNCTION_NAME_P})>:")
+SCHEDULE = re.compile(f"(.* )?schedule (.+) <({FUNCTION_NAME_P})>:")
 FUNCTIONTREE = re.compile(
     f"functiontree <({NAME_P})><({SELECTOR_P}) ({NAME_P}) +({INT_P})\.\.({INT_P})>:")
 FOR = re.compile(f"for <({NAME_P}) +({INT_P})\.\.({INT_P})(?: +({INT_P}))?>:")
@@ -249,6 +250,11 @@ class CodeTreeNode:
                 file_modified = True
             elif (m := SUBFUNCTION.fullmatch(eval_line)) and not is_lang:
                 command = self._eval_subfunction(
+                    unpack_mode, source_path, export_path, m, scope, child)
+                evaluated_lines.append(command)
+                file_modified = True
+            elif (m := SCHEDULE.fullmatch(eval_line)) and not is_lang:
+                command = self._eval_schedule(
                     unpack_mode, source_path, export_path, m, scope, child)
                 evaluated_lines.append(command)
                 file_modified = True
@@ -504,6 +510,27 @@ class CodeTreeNode:
             scope, source_path, subfunction_path,
             unpack_mode=UnpackMode.NONE, force_file_write=True)
         return f"{prefix}function {subfunction_name}"
+
+    def _eval_schedule(
+            self, unpack_mode: UnpackMode, source_path: Path, export_path: Path,
+            match: Match, scope: Dict[str, int], child: 'CodeTreeNode') -> str:
+        '''
+        Evaluates a 'subfunction' command. Returns a line of code for
+        the parent function.
+        '''
+        if unpack_mode in (UnpackMode.SUBFUNCTION, UnpackMode.HERE):
+            raise SubfunctionError(
+                source_path, child.line_number,
+                ["Using 'schedule' keyword is not allowed in "
+                 "functions using UNPACK:HERE or UNPACK:SUBFUNCTION!"])
+        subfunction_name = f'{get_function_name(export_path)}/{match[3]}'
+        schedule_args = match[2]
+        prefix = "" if match[1] is None else match[1]
+        subfunction_path = get_subfunction_path(export_path, match[3])
+        child.eval_and_dump(
+            scope, source_path, subfunction_path,
+            unpack_mode=UnpackMode.NONE, force_file_write=True)
+        return f"{prefix}schedule {schedule_args} {subfunction_name}"
 
     def _eval_just_define(
             self, source_path: Path, export_path: Path, match: Match[str],
