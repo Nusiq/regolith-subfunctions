@@ -249,7 +249,7 @@ class CodeTreeNode:
                 file_modified = True
             elif (m := SUBFUNCTION.fullmatch(eval_line)) and not is_lang:
                 command = self._eval_subfunction(
-                    source_path, export_path, m, scope, child)
+                    unpack_mode, source_path, export_path, m, scope, child)
                 evaluated_lines.append(command)
                 file_modified = True
             elif m := IF.fullmatch(eval_line):
@@ -478,7 +478,7 @@ class CodeTreeNode:
         return []
 
     def _eval_subfunction(
-            unpack_mode: UnpackMode, source_path: Path, export_path: Path,
+            self, unpack_mode: UnpackMode, source_path: Path, export_path: Path,
             match: Match, scope: Dict[str, int], child: 'CodeTreeNode') -> str:
         '''
         Evaluates a 'subfunction' command. Returns a line of code for
