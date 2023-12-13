@@ -289,6 +289,14 @@ class CodeTreeNode:
                 unpack_mode = UnpackMode.SUBFUNCTION
                 file_modified = True
             else:  # Regular command
+                # Evaluating lines is not allowed in UNPACK:HERE or
+                # UNPACK:SUBFUNCTION
+                if unpack_mode in (UnpackMode.SUBFUNCTION, UnpackMode.HERE):
+                    raise SubfunctionError(
+                        source_path, child.line_number,
+                        ["Using regular commands is not allowed directly in "
+                         "functions using UNPACK:HERE or UNPACK:SUBFUNCTION!"])
+
                 evaluated_lines.append(eval_line)
                 # The indentation for "Regular command" is allowed only if
                 # there is a comment at the top. This feature allows to write
