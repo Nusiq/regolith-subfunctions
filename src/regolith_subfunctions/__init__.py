@@ -7,7 +7,7 @@ import re
 import sys
 from better_json_tools import load_jsonc
 
-VERSION = (1, 2, 0)
+VERSION = (1, 2, 1)
 __version__ = '.'.join([str(x) for x in VERSION])
 
 # The system_tempalte regolith filter overwrites the FUNCTION_PATH variable to
@@ -204,7 +204,7 @@ class CodeTreeNode:
         if unpack_mode == UnpackMode.NONE:
             if file_modified:  # don't overwrite if file was not modified
                 export_path.parent.mkdir(exist_ok=True, parents=True)
-                with export_path.open('w') as f:
+                with export_path.open('w', encoding='utf8') as f:
                     f.write("\n".join(evaluated_lines))
         else:  # UnpackMode.HERE or UnpackMode.SUBFUNCTION
             # The files have been unpacked to other locations and they should
@@ -385,7 +385,7 @@ class CodeTreeNode:
                     left_suffix = (
                         f'function {get_function_name(left_branch_path)}')
                     left_branch_path.parent.mkdir(exist_ok=True, parents=True)
-                    with left_branch_path.open('w') as f:
+                    with left_branch_path.open('w', encoding='utf8') as f:
                         f.write('\n'.join(evaluated_commands))
                     branch_content.append(left_prefix + left_suffix)
             # Right branch half
@@ -406,14 +406,14 @@ class CodeTreeNode:
                     right_suffix = (
                         f'function {get_function_name(right_branch_path)}')
                     right_branch_path.parent.mkdir(exist_ok=True, parents=True)
-                    with right_branch_path.open('w') as f:
+                    with right_branch_path.open('w', encoding='utf8') as f:
                         f.write('\n'.join(evaluated_commands))
                     branch_content.append(right_prefix + right_suffix)
             if is_root_block:
                 result.extend(branch_content)
             else:
                 branch_path.parent.mkdir(exist_ok=True, parents=True)
-                with branch_path.open('w') as f:
+                with branch_path.open('w', encoding='utf8') as f:
                     f.write('\n'.join(branch_content))
         return result
 
@@ -616,7 +616,7 @@ class CodeTreeNode:
 
 class CodeTree:
     def __init__(self, source_path: Path):
-        with source_path.open('r') as f:
+        with source_path.open('r', encoding='utf8') as f:
             text = f.read()
         self.root: CodeTreeNode = CodeTreeNode("", is_root=True)
         self.root.child_indent = 0
