@@ -1,13 +1,13 @@
 import json
 from enum import Enum, auto
 from collections import deque
-from typing import Deque, Iterator, List, Match, Optional, Dict, Tuple
+from typing import Deque, Iterator, List, Match, Optional, Dict, Tuple, Any
 from pathlib import Path
 import re
 import sys
 from better_json_tools import load_jsonc
 
-VERSION = (1, 2, 1)
+VERSION = (1, 2, 2)
 __version__ = '.'.join([str(x) for x in VERSION])
 
 # The system_tempalte regolith filter overwrites the FUNCTION_PATH variable to
@@ -41,7 +41,7 @@ EVAL = re.compile(f"`eval: *({EXPR_P}) *`")
 class SubfunctionError(Exception):
     def __init__(
             self, source_path: Path, line_number: int,
-            errors: List[str] = None):
+            errors: List[str] | None = None):
         errors = [] if errors is None else errors
         self.errors = [
             f"Error at {source_path.as_posix()}:{line_number}:"] + errors
@@ -57,14 +57,14 @@ class UnpackMode(Enum):
 
 
 class EvalException(Exception):
-    def __init__(self, errors: List[str] = None):
+    def __init__(self, errors: List[str] | None = None):
         self.errors = [] if errors is None else errors
 
     def __str__(self):
         return "\n".join(self.errors)
 
 
-def custom_eval(expr, scope: Dict[str, int]):
+def custom_eval(expr: str, scope: Dict[str, int]):
     '''
     Custom eval calls the "eval" function with the given expression and scope.
     If it fails, it raises an EvalException with the error message.
@@ -78,7 +78,7 @@ def custom_eval(expr, scope: Dict[str, int]):
         ])
 
 
-def print_red(text):
+def print_red(text: str):
     for t in text.split('\n'):
         print("\033[91m {}\033[00m".format(t))
 
@@ -97,9 +97,12 @@ def get_subfunction_path(function_path: Path, subfunction_name: str):
     ).with_suffix(".mcfunction")
 
 
-def line_error_message(line, start, stop, max_len=50):
+def line_error_message(
+        line: str, start: int, stop: int, max_len: int=50) -> tuple[str, str]:
     '''
-    
+    Returns a tuple with two strings. The first string is the line of code
+    with the error marked with '^' characters. The second string is a line
+    with '^' characters marking the error.
     '''
     start, stop = sorted((start, stop))
     max_len = min(len(line), max_len)
@@ -125,7 +128,7 @@ def eval_line_of_code(line: str, scope: Dict[str, int]) -> Tuple[str, bool]:
     if line.startswith("#"):  # Comments aren't evaluated
         return line, False
     cursor = 0
-    replace = []
+    replace: list[tuple[int, int, str]] = []
     while cursor < len(line) and (match := EVAL.search(line[cursor:])):
         start, end = cursor+match.start(), cursor+match.end()
         try:
@@ -135,14 +138,13 @@ def eval_line_of_code(line: str, scope: Dict[str, int]) -> Tuple[str, bool]:
             raise EvalException(e.errors + [u, d])
         cursor = end
     if len(replace) > 0:
-        result_list = []
+        result_list: list[str] = []
         prev_end = 0
         for r in replace:
             result_list.append(line[prev_end:r[0]])  # prefix
             result_list.append(r[2])  # value
             prev_end = r[1]
-        # Last item (python's variable scope is weeeird :O, but awesome)
-        result_list.append(line[r[1]:])  # sufix
+        result_list.append(line[prev_end:])  # sufix
         return "".join(result_list), True
     return line, False
 
@@ -156,7 +158,7 @@ class CodeTreeNode:
         self.parent: Optional[CodeTreeNode] = parent
         self.children: List[CodeTreeNode] = []
         # The expected indentation of a child_node
-        self.child_indent = None
+        self.child_indent: int | None = None
         self.is_root = is_root
 
     @property
@@ -177,7 +179,7 @@ class CodeTreeNode:
     def is_blank(self):
         return self.stripped_line == ""
 
-    def recursive_print(self, indent=0, indent_str="->"):
+    def recursive_print(self, indent: int=0, indent_str: str="->") -> Iterator[str]:
         '''
         Debug function to print the code tree.
         '''
@@ -188,7 +190,8 @@ class CodeTreeNode:
             yield from child.recursive_print(indent)
 
     def eval_and_dump(
-            self, scope: Dict[str, int], source_path: Path, export_path: Path,
+            self, scope: Dict[str, int], source_path: Path | None,
+            export_path: Path,
             *, unpack_mode: UnpackMode = UnpackMode.NONE,
             force_file_write: bool = False):
         '''
@@ -324,7 +327,7 @@ class CodeTreeNode:
 
     def _eval_functiontree(
             self, unpack_mode: UnpackMode, source_path: Path,
-            export_path: Path, match: Match,
+            export_path: Path, match: Match[str],
             scope: Dict[str, int], child: 'CodeTreeNode') -> List[str]:
         if unpack_mode in (UnpackMode.SUBFUNCTION, UnpackMode.HERE):
             raise SubfunctionError(
@@ -338,7 +341,7 @@ class CodeTreeNode:
         m_max = int(match[5])
 
         def yield_splits(
-                list_: List[int], is_root_block=True
+                list_: List[int], is_root_block: bool=True
         ) -> Iterator[Tuple[int, int, int, int, bool]]:
             if len(list_) <= 1:
                 return
@@ -349,13 +352,13 @@ class CodeTreeNode:
             yield from yield_splits(right, False)
 
         leaf_values: List[int] = [i for i in range(m_min, m_max)]
-        result = []
+        result: list[str] = []
         for left_min, left_max, right_min, right_max, is_root_block in \
                 yield_splits(leaf_values):
             # Sorting items in case of reverse iteration
             left_min, left_max, right_min, right_max = sorted(
                 (left_min, left_max, right_min, right_max))
-            branch_content = []
+            branch_content: list[str] = []
             branch_path = get_subfunction_path(
                 export_path, f'{m_name}_{left_min}_{right_max}')
             left_prefix = (
@@ -419,7 +422,7 @@ class CodeTreeNode:
 
     def _eval_for(
             self, unpack_mode: UnpackMode, source_path: Path,
-            export_path: Path, match: Match, scope: Dict[str, int],
+            export_path: Path, match: Match[str], scope: Dict[str, int],
             child: 'CodeTreeNode') -> List[str]:
         '''
         Evaluates a 'for' loop. Returns a list of commands generated by the
@@ -440,7 +443,7 @@ class CodeTreeNode:
 
     def _eval_foreach(
             self, unpack_mode: UnpackMode, source_path: Path,
-            export_path: Path, match: Match, scope: Dict[str, int],
+            export_path: Path, match: Match[str], scope: Dict[str, int],
             child: 'CodeTreeNode', stripped_line: str) -> List[str]:
         '''
         Evaluates a 'for' loop. Returns a list of commands generated by the
@@ -469,7 +472,7 @@ class CodeTreeNode:
 
     def _eval_if(
             self, unpack_mode: UnpackMode, source_path: Path,
-            export_path: Path, match: Match, scope: Dict[str, int],
+            export_path: Path, match: Match[str], scope: Dict[str, int],
             child: 'CodeTreeNode', stripped_line: str) -> List[str]:
         '''
         Evaluates an 'if' block. Returns a list of generated commands if the
@@ -493,7 +496,7 @@ class CodeTreeNode:
 
     def _eval_subfunction(
             self, unpack_mode: UnpackMode, source_path: Path, export_path: Path,
-            match: Match, scope: Dict[str, int], child: 'CodeTreeNode') -> str:
+            match: Match[str], scope: Dict[str, int], child: 'CodeTreeNode') -> str:
         '''
         Evaluates a 'subfunction' command. Returns a line of code for
         the parent function.
@@ -513,7 +516,7 @@ class CodeTreeNode:
 
     def _eval_schedule(
             self, unpack_mode: UnpackMode, source_path: Path, export_path: Path,
-            match: Match, scope: Dict[str, int], child: 'CodeTreeNode') -> str:
+            match: Match[str], scope: Dict[str, int], child: 'CodeTreeNode') -> str:
         '''
         Evaluates a 'subfunction' command. Returns a line of code for
         the parent function.
@@ -675,15 +678,18 @@ def main():
     The main function used by the subfunctions regolith filter.
     '''
     try:
-        config = json.loads(sys.argv[1])
+        config: dict[str, Any] = json.loads(sys.argv[1])
+        assert isinstance(config, dict)
     except Exception:
         config = {}
     # Add scope
-    scope = {'true': True, 'false': False}
+    scope: dict[str, Any] = {'true': True, 'false': False}
     scope_path = Path('data') / config.get(
         'scope_path', 'subfunctions/scope.json')
     try:
-        scope = scope | load_jsonc(scope_path).data
+        file_scope = load_jsonc(scope_path).data
+        assert isinstance(file_scope, dict)
+        scope = scope | file_scope
     except:
         print_red(
             f"Unable to read scope from {scope_path.as_posix()}. "
