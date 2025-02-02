@@ -7,7 +7,7 @@ import re
 import sys
 from better_json_tools import load_jsonc
 
-VERSION = (1, 2, 2)
+VERSION = (1, 2, 3)
 __version__ = '.'.join([str(x) for x in VERSION])
 
 # The system_tempalte regolith filter overwrites the FUNCTION_PATH variable to
@@ -193,19 +193,47 @@ class CodeTreeNode:
             self, scope: Dict[str, int], source_path: Path | None,
             export_path: Path,
             *, unpack_mode: UnpackMode = UnpackMode.NONE,
-            force_file_write: bool = False):
+            assume_file_modified: bool = False,
+            allow_overwrite: bool = True):
         '''
         Evaluates all of the CHILDREN of this node, and dumps created text into
         mcfunction file. This function recursively walks the CodeTree and
         calling it on the root node evaluates entire source file.
+
+        :param scope: The scope dictionary that contains variables.
+        :param source_path: The path of the source file.
+        :param export_path: The path of the file to export the evaluated code.
+        :param unpack_mode: The mode of unpacking the subfunctions, HERE,
+            SUBFUNCTION or (default) NONE. The HERE and SUBFUNCTION modes
+            delete the source file at the end of the evaluation (its content
+            is unpacked to other files).
+        :param assume_file_modified: Used in recursive calls. Normally, when
+            the file is not modified after the evaluation, no file is written
+            (to improve performance). If this parameter is set to True, the
+            file will be written even if it was not modified (which sometimes
+            is useful in internal logic).
+        :param allow_overwrite: Used internally in recursive calls. If set to
+            False, the function will error if the file to write to already
+            exists. By default this parameter is set to True, because when
+            you call run 'subfunctions' filter on a file, you want to modfiy it
+            but the internall calls that create the subfunctions from the file
+            should check if the files aren't already created and stop if
+            they are to avoid confusing situations where the same file is
+            written to multiple times.
         '''
         if source_path is None:
             source_path = export_path
         evaluated_lines, file_modified, unpack_mode = self._eval(
             scope, source_path, export_path,
-            unpack_mode=unpack_mode, force_file_write=force_file_write)
+            unpack_mode=unpack_mode, assume_file_modified=assume_file_modified)
         if unpack_mode == UnpackMode.NONE:
             if file_modified:  # don't overwrite if file was not modified
+                if not allow_overwrite:
+                    if export_path.exists():
+                        raise SubfunctionError(
+                            source_path, self.line_number,
+                            ["Attempting to overwrite a file that already "
+                             "exists: ", f"{export_path.as_posix()}"])
                 export_path.parent.mkdir(exist_ok=True, parents=True)
                 with export_path.open('w', encoding='utf8') as f:
                     f.write("\n".join(evaluated_lines))
@@ -217,7 +245,7 @@ class CodeTreeNode:
     def _eval(
         self, scope: Dict[str, int], source_path: Path, export_path: Path, *,
         unpack_mode: UnpackMode = UnpackMode.NONE,
-        force_file_write: bool = False
+        assume_file_modified: bool = False
     ) -> Tuple[List[str], bool, UnpackMode]:
         '''
         Evaluates all of the CHILDREN of this node, returns created text as a
@@ -226,7 +254,7 @@ class CodeTreeNode:
         definitions.
         '''
         evaluated_lines: List[str] = []
-        file_modified = False or force_file_write
+        file_modified = False or assume_file_modified
         for child in self.children:
             stripped_line = child.stripped_line
             is_lang = export_path.suffix == '.lang'
@@ -320,7 +348,7 @@ class CodeTreeNode:
                         ["Unexpected indentation."])
                 commands, commands_modified, _ = child._eval(
                     scope, source_path, export_path,
-                    unpack_mode=unpack_mode, force_file_write=force_file_write)
+                    unpack_mode=unpack_mode, assume_file_modified=assume_file_modified)
                 evaluated_lines.extend(commands)
                 file_modified = file_modified or commands_modified
         return evaluated_lines, file_modified, unpack_mode
@@ -385,6 +413,11 @@ class CodeTreeNode:
                 if len(evaluated_commands) == 1:
                     branch_content.append(left_prefix + evaluated_commands[0])
                 else:  # More than one in normal case (possible edge case: 0)
+                    if left_branch_path.exists():
+                        raise SubfunctionError(
+                            source_path, child.line_number,
+                            ["Attempting to overwrite a file that already "
+                             "exists: ", f"{left_branch_path.as_posix()}"])
                     left_suffix = (
                         f'function {get_function_name(left_branch_path)}')
                     left_branch_path.parent.mkdir(exist_ok=True, parents=True)
@@ -406,6 +439,11 @@ class CodeTreeNode:
                 if len(evaluated_commands) == 1:
                     branch_content.append(right_prefix + evaluated_commands[0])
                 else:  # More than one in normal case (possible edge case: 0)
+                    if right_branch_path.exists():
+                        raise SubfunctionError(
+                            source_path, child.line_number,
+                            ["Attempting to overwrite a file that already "
+                             "exists: ", f"{right_branch_path.as_posix()}"])
                     right_suffix = (
                         f'function {get_function_name(right_branch_path)}')
                     right_branch_path.parent.mkdir(exist_ok=True, parents=True)
@@ -415,6 +453,11 @@ class CodeTreeNode:
             if is_root_block:
                 result.extend(branch_content)
             else:
+                if branch_path.exists():
+                    raise SubfunctionError(
+                        source_path, child.line_number,
+                        ["Attempting to overwrite a file that already "
+                         "exists: ", f"{branch_path.as_posix()}"])
                 branch_path.parent.mkdir(exist_ok=True, parents=True)
                 with branch_path.open('w', encoding='utf8') as f:
                     f.write('\n'.join(branch_content))
@@ -511,7 +554,8 @@ class CodeTreeNode:
         subfunction_path = get_subfunction_path(export_path, match[2])
         child.eval_and_dump(
             scope, source_path, subfunction_path,
-            unpack_mode=UnpackMode.NONE, force_file_write=True)
+            unpack_mode=UnpackMode.NONE, assume_file_modified=True,
+            allow_overwrite=False)
         return f"{prefix}function {subfunction_name}"
 
     def _eval_schedule(
@@ -532,7 +576,8 @@ class CodeTreeNode:
         subfunction_path = get_subfunction_path(export_path, match[3])
         child.eval_and_dump(
             scope, source_path, subfunction_path,
-            unpack_mode=UnpackMode.NONE, force_file_write=True)
+            unpack_mode=UnpackMode.NONE, assume_file_modified=True,
+            allow_overwrite=False)
         return f"{prefix}schedule {schedule_args} {subfunction_name}"
 
     def _eval_just_define(
@@ -542,7 +587,8 @@ class CodeTreeNode:
         subfunction_path = get_subfunction_path(export_path, match[1])
         child.eval_and_dump(
             scope, source_path, subfunction_path,
-            unpack_mode=UnpackMode.NONE, force_file_write=True)
+            unpack_mode=UnpackMode.NONE, assume_file_modified=True,
+            allow_overwrite=False)
 
     def _eval_unpack_here(
             self, source_path: Path, export_path: Path,
